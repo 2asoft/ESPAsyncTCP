@@ -11,6 +11,7 @@ struct SSL_CTX_PARAMS {
   int iobuf_in_size = 0;
   int iobuf_out_size = 0;
   uint8_t fingerprint[20];
+  const char *ca_cert = nullptr;
   void display(const char *tag, Stream &out) {
     out.printf("%s: insecure=%u fp=%u ss=%u in=%u out=%u\n", tag, use_insecure,
                use_fingerprint, use_self_signed, iobuf_in_size, iobuf_out_size);

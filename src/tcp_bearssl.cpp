@@ -38,6 +38,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "tcp_bearssl.h"
 
@@ -140,6 +141,7 @@ uint8_t tcp_ssl_has_client() { return _tcp_ssl_has_client; }
 
 #include <StackThunk.h>
 #include <bearssl/bearssl.h>
+#include <BearSSLHelpers.h>
 
 tcp_ssl_t *tcp_ssl_new(struct tcp_pcb *tcp) {
   TCP_SSL_DEBUG("BearSSL %s\n", ASYNCTCP_STRINGIFY(x));
@@ -193,6 +195,23 @@ static void tcp_ssl_free_ssl(SSL *ssl) {
   free(ssl);
 }
 
+static time_t tcp_ssl_compile_time() {
+  const char *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  char month[4] = {__DATE__[0], __DATE__[1], __DATE__[2], 0};
+  const char *month_pos = strstr(months, month);
+  if (month_pos == nullptr) {
+    return 0;
+  }
+  struct tm tm = {};
+  tm.tm_year = atoi(__DATE__ + 7) - 1900;
+  tm.tm_mon = (month_pos - months) / 3;
+  tm.tm_mday = atoi(__DATE__ + 4);
+  tm.tm_hour = atoi(__TIME__);
+  tm.tm_min = atoi(__TIME__ + 3);
+  tm.tm_sec = atoi(__TIME__ + 6);
+  return mktime(&tm);
+}
+
 static SSL_CTX *tcp_ssl_ctx_new(SSL_CTX_PARAMS &params) {
   HEAP_DEBUG("free heap = %5d\n", system_get_free_heap_size());
   HEAP_DEBUG("malloc(SSL_CTX) %d\n", sizeof(SSL_CTX));
@@ -236,6 +255,19 @@ static SSL_CTX *tcp_ssl_ctx_new(SSL_CTX_PARAMS &params) {
   ssl_ctx->_use_self_signed = params.use_self_signed;
   if (params.use_fingerprint) {
     memcpy(ssl_ctx->_fingerprint, params.fingerprint, 20);
+  }
+  if (params.ca_cert != nullptr) {
+    ssl_ctx->_ta_list = std::make_shared<BearSSL::X509List>(params.ca_cert);
+    if (!ssl_ctx->_ta_list || ssl_ctx->_ta_list->getCount() == 0) {
+      TCP_SSL_DEBUG("ssl_ctx_new: failed to parse CA certificate\n");
+      delete ssl_ctx;
+      return nullptr;
+    }
+    ssl_ctx->_ta = ssl_ctx->_ta_list.get();
+    ssl_ctx->_now = time(nullptr);
+    if (ssl_ctx->_now < 1700000000) {
+      ssl_ctx->_now = tcp_ssl_compile_time();
+    }
   }
 
   stack_thunk_add_ref();
@@ -316,7 +348,9 @@ static void br_ssl_install_client_x509_validator(SSL_CTX *ctx) {
   // adapted _installClientX509Validator, detached from WiFiClient
   // X509 minimal validator.  Checks dates, cert chain for trusted CA, etc.
   ctx->_x509_minimal = std::make_shared<br_x509_minimal_context>();
-  br_x509_minimal_init(ctx->_x509_minimal.get(), &br_sha256_vtable, NULL, 0);
+  br_x509_minimal_init(ctx->_x509_minimal.get(), &br_sha256_vtable,
+                       ctx->_ta ? ctx->_ta->getTrustAnchors() : nullptr,
+                       ctx->_ta ? ctx->_ta->getCount() : 0);
   br_x509_minimal_set_rsa(ctx->_x509_minimal.get(),
                           br_ssl_engine_get_rsavrfy(ctx->_eng));
   br_x509_minimal_set_ecdsa(ctx->_x509_minimal.get(),

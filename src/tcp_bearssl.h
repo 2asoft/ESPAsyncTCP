@@ -93,6 +93,7 @@ typedef struct SSL_CTX_ {
   std::shared_ptr<br_x509_minimal_context> _x509_minimal;
   std::shared_ptr<struct br_x509_insecure_context> _x509_insecure;
   std::shared_ptr<br_x509_knownkey_context> _x509_knownkey;
+  std::shared_ptr<BearSSL::X509List> _ta_list;
   std::shared_ptr<unsigned char> _iobuf_in;
   std::shared_ptr<unsigned char> _iobuf_out;
 
